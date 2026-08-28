@@ -91,3 +91,4 @@ def generer_pdf(texte_correction, enonce_exercice, matiere="maths"):
     buffer.seek(0)
     return buffer
 
+
