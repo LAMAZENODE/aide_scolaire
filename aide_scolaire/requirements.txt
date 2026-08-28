@@ -1,0 +1,7 @@
+streamlit
+google-genai
+stripe
+reportlab
+flask
+twilio
+python-dotenv
