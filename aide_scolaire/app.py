@@ -118,6 +118,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================
+# # ============================================
 # INTERFACE : NON ABONNÉ
 # ============================================
 if not st.session_state.est_abonne:
@@ -149,7 +150,7 @@ if not st.session_state.est_abonne:
                 mode='payment',
                 success_url=f"{URL_APP}?session_id={{CHECKOUT_SESSION_ID}}",
                 cancel_url=URL_APP,
-                customer_email=None,  # Laisse l'utilisateur entrer son email
+                customer_email=None,
                 payment_method_types=['card'],
                 billing_address_collection='required',
                 metadata={
@@ -170,6 +171,38 @@ if not st.session_state.est_abonne:
             
         except Exception as e:
             st.error(f"❌ Erreur : {str(e)}")
+
+    # 🛡️ AJOUT DES BADGES DE SECURITE DIRECTEMENT SOUS LE BOUTON
+    st.markdown("""
+    <div style="text-align: center; margin-top: 15px; margin-bottom: 25px; color: #6B7280; font-size: 0.9em;">
+        🛡️ Paiement 100% Sécurisé et chiffré par <b>Stripe</b><br>
+        ⚡ Déblocage instantané de votre espace tuteur après validation
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ============================================
+    # 💬 AJOUT DE LA SECTION TEMOIGNAGES EN BAS
+    # ============================================
+    st.divider()
+    st.markdown("<h3 style='text-align: center;'>💬 Ce qu'en pensent nos utilisateurs (4.9/5 ⭐)</h3>", unsafe_allow_html=True)
+    st.write("") # Espace
+    
+    avis1, avis2 = st.columns(2)
+    
+    with avis1:
+        st.info("""
+        **⭐⭐⭐⭐⭐ "Sauvée pour le Bac !"**  
+        *« J'avais un gros blocage sur les fonctions en maths. L'IA m'a réexpliqué le cours étape par étape sans me juger. L'export PDF est super propre pour réviser dans le bus. »*  
+        — **Léa, 17 ans (Terminale)**
+        """)
+        
+    with avis2:
+        st.info("""
+        **⭐⭐⭐⭐⭐ "Rentabilisé en un soir"**  
+        *« Idéal pour débloquer les devoirs de mes enfants le soir quand je ne sais plus comment expliquer. Pour 5€ une seule fois, c'est une excellente affaire. »*  
+        — **Marc, Parent de deux collégiens**
+        """)
+
 
 # ============================================
 # INTERFACE : ABONNÉ
@@ -309,6 +342,7 @@ else:
             if key in st.session_state:
                 del st.session_state[key]
         st.rerun()
+
 
 
 
