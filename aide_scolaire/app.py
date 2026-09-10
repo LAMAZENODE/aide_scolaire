@@ -184,28 +184,39 @@ if not st.session_state.est_abonne:
         st.write("")
         st.markdown("### 💎 Choisis ta formule")
 
+  
         col1, col2, col3 = st.columns(3)
 
-        with col1:
-            st.markdown("#### ⚡ Pass Journée")
-            st.markdown("**2,99€**")
-            st.caption("24h illimité — idéal avant un contrôle")
-            if st.button("Choisir", use_container_width=True, key="btn_jour"):
-                _checkout(PRIX["jour"], URL_APP)
+with col1:
+    st.markdown("#### ⚡ Pass Journée")
+    st.markdown("**2,99€**")
+    st.caption("24h illimité — idéal avant un contrôle")
+    st.link_button(
+        "💳 Payer",
+        LIENS_PAIEMENT["jour"],
+        use_container_width=True
+    )
 
-        with col2:
-            st.markdown("#### 🌟 Mensuel ⭐")
-            st.markdown("**9,99€/mois**")
-            st.caption("Le plus populaire — annulable en 1 clic")
-            if st.button("Choisir", type="primary", use_container_width=True, key="btn_mois"):
-                _checkout(PRIX["mois"], URL_APP)
+with col2:
+    st.markdown("#### 🌟 Mensuel ⭐")
+    st.markdown("**9,99€/mois**")
+    st.caption("Le plus populaire — annulable en 1 clic")
+    st.link_button(
+        "💳 Payer",
+        LIENS_PAIEMENT["mois"],
+        use_container_width=True,
+        type="primary"
+    )
 
-        with col3:
-            st.markdown("#### 🎓 Pack Bac")
-            st.markdown("**19,99€**")
-            st.caption("3 mois d'accès — révisions complètes")
-            if st.button("Choisir", use_container_width=True, key="btn_bac"):
-                _checkout(PRIX["bac"], URL_APP)
+with col3:
+    st.markdown("#### 🎓 Pack Bac")
+    st.markdown("**19,99€**")
+    st.caption("3 mois d'accès — révisions complètes")
+    st.link_button(
+        "💳 Payer",
+        LIENS_PAIEMENT["bac"],
+        use_container_width=True
+    )
 
         st.markdown("""
         <div style="text-align:center; margin-top:20px; color:#6B7280; font-size:0.9em;">
