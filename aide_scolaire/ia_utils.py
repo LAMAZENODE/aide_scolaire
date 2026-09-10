@@ -46,7 +46,7 @@ def generer_reponse_ia(question, matiere="maths"):
     try:
         # Appel à l'API Gemini avec google-genai
         reponse = client.models.generate_content(
-           model="gemini-2.5-flash" ,  # ou 'gemini-1.5-flash' selon disponibilité
+            model="gemini-3.6-flash",  # ou 'gemini-1.5-flash' selon disponibilité
             contents=question,
             config=types.GenerateContentConfig(
                 system_instruction=instructions,
