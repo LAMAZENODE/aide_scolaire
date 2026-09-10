@@ -193,7 +193,7 @@ with col1:
     st.caption("24h illimité — idéal avant un contrôle")
     st.link_button(
         "💳 Payer",
-        LIENS_PAIEMENT["jour"],
+        LIENS_PAIEMENT["https://buy.stripe.com/7sYfZg5TVfmibjuaJq8g004"],
         use_container_width=True
     )
 
@@ -203,7 +203,7 @@ with col2:
     st.caption("Le plus populaire — annulable en 1 clic")
     st.link_button(
         "💳 Payer",
-        LIENS_PAIEMENT["mois"],
+        LIENS_PAIEMENT["https://buy.stripe.com/3cIdR8gyzfmifzKcRy8g005"],
         use_container_width=True,
         type="primary"
     )
@@ -214,7 +214,7 @@ with col3:
     st.caption("3 mois d'accès — révisions complètes")
     st.link_button(
         "💳 Payer",
-        LIENS_PAIEMENT["bac"],
+        LIENS_PAIEMENT["https://buy.stripe.com/aFadR8dmn3DA2MY04M8g006"],
         use_container_width=True
     )
 
