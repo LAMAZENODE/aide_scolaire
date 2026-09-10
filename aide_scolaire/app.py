@@ -185,39 +185,39 @@ if not st.session_state.est_abonne:
         st.markdown("### 💎 Choisis ta formule")
 
   
-        col1, col2, col3 = st.columns(3)
+                col1, col2, col3 = st.columns(3)
 
-with col1:
-    st.markdown("#### ⚡ Pass Journée")
-    st.markdown("**2,99€**")
-    st.caption("24h illimité — idéal avant un contrôle")
-  
-    st.link_button(
-    "💳 Payer",
-    "https://buy.stripe.com/7sYfZg5TVfmibjuaJq8g004",
-    use_container_width=True
-)
+        with col1:
+            st.markdown("#### ⚡ Pass Journée")
+            st.markdown("**2,99€**")
+            st.caption("24h illimité — idéal avant un contrôle")
+            st.link_button(
+                "💳 Payer",
+                "https://buy.stripe.com/7sYfZg5TVfmibjuaJq8g004",
+                use_container_width=True
+            )
 
-with col2:
-    st.markdown("#### 🌟 Mensuel ⭐")
-    st.markdown("**9,99€/mois**")
-    st.caption("Le plus populaire — annulable en 1 clic")
-    st.link_button(
-        "💳 Payer",
-        "https://buy.stripe.com/3cIdR8gyzfmifzKcRy8g005",
-        use_container_width=True,
-        type="primary"
-    )
+        with col2:
+            st.markdown("#### 🌟 Mensuel ⭐")
+            st.markdown("**9,99€/mois**")
+            st.caption("Le plus populaire — annulable en 1 clic")
+            st.link_button(
+                "💳 Payer",
+                "https://buy.stripe.com/3cIdR8gyzfmifzKcRy8g005",
+                use_container_width=True,
+                type="primary"
+            )
 
-with col3:
-    st.markdown("#### 🎓 Pack Bac")
-    st.markdown("**19,99€**")
-    st.caption("3 mois d'accès — révisions complètes")
-    st.link_button(
-        "💳 Payer",
-        "https://buy.stripe.com/aFadR8dmn3DA2MY04M8g006",
-        use_container_width=True
-    )
+        with col3:
+            st.markdown("#### 🎓 Pack Bac")
+            st.markdown("**19,99€**")
+            st.caption("3 mois d'accès — révisions complètes")
+            st.link_button(
+                "💳 Payer",
+                "https://buy.stripe.com/aFadR8dmn3DA2MY04M8g006",
+                use_container_width=True
+            )
+        
 
        
         st.markdown("""
