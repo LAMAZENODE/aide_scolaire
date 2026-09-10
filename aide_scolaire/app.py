@@ -218,6 +218,7 @@ with col3:
         use_container_width=True
     )
 
+       
         st.markdown("""
         <div style="text-align:center; margin-top:20px; color:#6B7280; font-size:0.9em;">
             🛡️ Paiement sécurisé par <b>Stripe</b><br>
@@ -225,11 +226,12 @@ with col3:
         </div>
         """, unsafe_allow_html=True)
 
-       
-                # Témoignages
+        # Témoignages
         st.divider()
-        st.markdown("<h3 style='text-align:center;'>💬 Ils ont testé (4.9/5 ⭐)</h3>",
-                    unsafe_allow_html=True)
+        st.markdown(
+            "<h3 style='text-align:center;'>💬 Ils ont testé (4.9/5 ⭐)</h3>",
+            unsafe_allow_html=True
+        )
         a1, a2 = st.columns(2)
         with a1:
             st.info(
@@ -243,7 +245,6 @@ with col3:
                 "*« Idéal pour débloquer les devoirs le soir. »*\n\n"
                 "— **Marc, parent**"
             )
-
 # ============================================
 # INTERFACE : ABONNÉ
 # ============================================
