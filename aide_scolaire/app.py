@@ -1,4 +1,6 @@
 import streamlit as st
+from datetime import datetime, timedelta
+import extra_streamlit_components as stx
 from generer_pdf import generer_pdf
 from ia_utils import generer_reponse_ia
 
@@ -11,6 +13,11 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="collapsed"
 )
+
+# ============================================
+# GESTIONNAIRE DE COOKIES
+# ============================================
+cookie_manager = stx.CookieManager()
 
 # ============================================
 # LIENS DE PAIEMENT STRIPE
@@ -53,13 +60,35 @@ for k, v in defaults.items():
         st.session_state[k] = v
 
 # ============================================
-# VÉRIFICATION RETOUR PAIEMENT
+# LECTURE DES COOKIES (persistance)
+# ============================================
+# Cookie : nb d'essais gratuits déjà utilisés
+essais_cookie = cookie_manager.get(cookie="essais_utilises")
+if essais_cookie is not None:
+    try:
+        st.session_state.nb_questions_utilisees = int(essais_cookie)
+    except (ValueError, TypeError):
+        st.session_state.nb_questions_utilisees = 0
+
+# Cookie : accès payant déjà débloqué
+acces_cookie = cookie_manager.get(cookie="acces_paye")
+if acces_cookie is not None:
+    st.session_state.est_abonne = True
+
+# ============================================
+# VÉRIFICATION RETOUR PAIEMENT (via URL Stripe)
 # ============================================
 qp = st.query_params
 if "acces" in qp:
     if qp["acces"] in CLES_ACCES:
         st.session_state.est_abonne = True
         st.session_state.duree_jours = CLES_ACCES[qp["acces"]]
+        # On écrit le cookie pour que l'accès persiste après F5
+        cookie_manager.set(
+            "acces_paye",
+            qp["acces"],
+            expires_at=datetime.now() + timedelta(days=CLES_ACCES[qp["acces"]])
+        )
         st.success("✅ Paiement confirmé ! Accès débloqué.")
         st.query_params.clear()
     else:
@@ -138,6 +167,13 @@ if not st.session_state.est_abonne:
                     st.session_state.derniere_question = question
                     st.session_state.derniere_matiere = matiere
                     st.session_state.nb_questions_utilisees += 1
+
+                    # 🔵 Écriture du cookie : mémorise le compteur
+                    cookie_manager.set(
+                        "essais_utilises",
+                        st.session_state.nb_questions_utilisees,
+                        expires_at=datetime.now() + timedelta(days=365)
+                    )
 
                     try:
                         st.session_state.pdf_buffer = generer_pdf(reponse, question, matiere)
