@@ -214,19 +214,24 @@ if not st.session_state.est_abonne:
         </div>
         """, unsafe_allow_html=True)
 
-        # Témoignages
+       
+                # Témoignages
         st.divider()
         st.markdown("<h3 style='text-align:center;'>💬 Ils ont testé (4.9/5 ⭐)</h3>",
                     unsafe_allow_html=True)
         a1, a2 = st.columns(2)
         with a1:
-            st.info("**⭐⭐⭐⭐⭐ "Sauvée pour le Bac !"**\n\n"
-                    "*« L'IA m'a réexpliqué étape par étape sans me juger. »*\n\n"
-                    "— **Léa, 17 ans**")
+            st.info(
+                "**⭐⭐⭐⭐⭐ « Sauvée pour le Bac ! »**\n\n"
+                "*« L'IA m'a réexpliqué étape par étape sans me juger. »*\n\n"
+                "— **Léa, 17 ans**"
+            )
         with a2:
-            st.info("**⭐⭐⭐⭐⭐ "Rentabilisé en un soir"**\n\n"
-                    "*« Idéal pour débloquer les devoirs le soir. »*\n\n"
-                    "— **Marc, parent**")
+            st.info(
+                "**⭐⭐⭐⭐⭐ « Rentabilisé en un soir »**\n\n"
+                "*« Idéal pour débloquer les devoirs le soir. »*\n\n"
+                "— **Marc, parent**"
+            )
 
 # ============================================
 # INTERFACE : ABONNÉ
