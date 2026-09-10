@@ -1,5 +1,4 @@
 import streamlit as st
-import stripe
 from generer_pdf import generer_pdf
 from ia_utils import generer_reponse_ia
 
@@ -14,20 +13,24 @@ st.set_page_config(
 )
 
 # ============================================
-# SECRETS
+# LIENS DE PAIEMENT STRIPE
 # ============================================
-try:
-    stripe.api_key = st.secrets["STRIPE_SECRET_KEY"]
-    URL_APP = st.secrets["MON_URL_STREAMLIT"]
-    # Plusieurs prix pour les paliers
-    PRIX = {
-        "jour": st.secrets["STRIPE_PRICE_JOUR"],       # 2,99€
-        "mois": st.secrets["STRIPE_PRICE_MOIS"],       # 9,99€
-        "bac": st.secrets["STRIPE_PRICE_BAC"],         # 19,99€
-    }
-except KeyError as e:
-    st.error(f"❌ Clé manquante dans secrets.toml : `{e.args[0]}`")
-    st.stop()
+LIEN_JOUR = "https://buy.stripe.com/7sYfZg5TVfmibjuaJq8g004"
+LIEN_MOIS = "https://buy.stripe.com/3cIdR8gyzfmifzKcRy8g005"
+LIEN_BAC  = "https://buy.stripe.com/aFadR8dmn3DA2MY04M8g006"
+
+# ============================================
+# CLÉS D'ACCÈS (à mettre dans les URLs de redirection Stripe)
+# ============================================
+# Dans Stripe Dashboard → Payment Links → After payment → Redirect URL
+# Jour : https://ton-app.streamlit.app/?acces=JOUR_a7f3b9e2c1
+# Mois : https://ton-app.streamlit.app/?acces=MOIS_d4e8f1a6b3
+# Bac  : https://ton-app.streamlit.app/?acces=BAC_9c2d5e7f8a
+CLES_ACCES = {
+    "JOUR_a7f3b9e2c1": 1,
+    "MOIS_d4e8f1a6b3": 30,
+    "BAC_9c2d5e7f8a": 90,
+}
 
 # ============================================
 # CONSTANTES
@@ -50,20 +53,17 @@ for k, v in defaults.items():
         st.session_state[k] = v
 
 # ============================================
-# VÉRIFICATION PAIEMENT STRIPE
+# VÉRIFICATION RETOUR PAIEMENT
 # ============================================
 qp = st.query_params
-if "session_id" in qp:
-    try:
-        session = stripe.checkout.Session.retrieve(qp["session_id"])
-        if session.payment_status == "paid":
-            st.session_state.est_abonne = True
-            st.success("✅ Paiement confirmé ! Accès débloqué.")
-            st.query_params.clear()
-        else:
-            st.warning("⏳ En attente de confirmation du paiement...")
-    except Exception as e:
-        st.error(f"Erreur Stripe : {e}")
+if "acces" in qp:
+    if qp["acces"] in CLES_ACCES:
+        st.session_state.est_abonne = True
+        st.session_state.duree_jours = CLES_ACCES[qp["acces"]]
+        st.success("✅ Paiement confirmé ! Accès débloqué.")
+        st.query_params.clear()
+    else:
+        st.error("❌ Lien d'accès invalide.")
 
 # ============================================
 # CSS
@@ -139,7 +139,6 @@ if not st.session_state.est_abonne:
                     st.session_state.derniere_matiere = matiere
                     st.session_state.nb_questions_utilisees += 1
 
-                    # PDF offert aussi pendant l'essai (argument de vente)
                     try:
                         st.session_state.pdf_buffer = generer_pdf(reponse, question, matiere)
                     except Exception as e:
@@ -147,7 +146,6 @@ if not st.session_state.est_abonne:
 
                 st.rerun()
 
-        # Affichage réponse + PDF
         if st.session_state.reponse_ia:
             st.markdown("---")
             st.markdown("### 📝 Réponse du Tuteur")
@@ -184,8 +182,7 @@ if not st.session_state.est_abonne:
         st.write("")
         st.markdown("### 💎 Choisis ta formule")
 
-  
-                col1, col2, col3 = st.columns(3)
+        col1, col2, col3 = st.columns(3)
 
         with col1:
             st.markdown("#### ⚡ Pass Journée")
@@ -193,7 +190,7 @@ if not st.session_state.est_abonne:
             st.caption("24h illimité — idéal avant un contrôle")
             st.link_button(
                 "💳 Payer",
-                "https://buy.stripe.com/7sYfZg5TVfmibjuaJq8g004",
+                LIEN_JOUR,
                 use_container_width=True
             )
 
@@ -203,7 +200,7 @@ if not st.session_state.est_abonne:
             st.caption("Le plus populaire — annulable en 1 clic")
             st.link_button(
                 "💳 Payer",
-                "https://buy.stripe.com/3cIdR8gyzfmifzKcRy8g005",
+                LIEN_MOIS,
                 use_container_width=True,
                 type="primary"
             )
@@ -214,12 +211,10 @@ if not st.session_state.est_abonne:
             st.caption("3 mois d'accès — révisions complètes")
             st.link_button(
                 "💳 Payer",
-                "https://buy.stripe.com/aFadR8dmn3DA2MY04M8g006",
+                LIEN_BAC,
                 use_container_width=True
             )
-        
 
-       
         st.markdown("""
         <div style="text-align:center; margin-top:20px; color:#6B7280; font-size:0.9em;">
             🛡️ Paiement sécurisé par <b>Stripe</b><br>
@@ -246,6 +241,7 @@ if not st.session_state.est_abonne:
                 "*« Idéal pour débloquer les devoirs le soir. »*\n\n"
                 "— **Marc, parent**"
             )
+
 # ============================================
 # INTERFACE : ABONNÉ
 # ============================================
@@ -253,7 +249,6 @@ else:
     st.success("✅ Accès illimité débloqué")
     st.title("🎓 Mon Tuteur Scolaire")
 
-    # PDF existant
     if st.session_state.pdf_buffer:
         st.markdown("### 📄 Dernière correction")
         c1, c2, c3 = st.columns([2, 1, 1])
@@ -275,7 +270,6 @@ else:
                 st.rerun()
         st.divider()
 
-    # Nouvelle question
     st.markdown("### ✍️ Posez votre question")
     matiere = st.selectbox(
         "Matière",
@@ -324,33 +318,3 @@ else:
         for k in list(st.session_state.keys()):
             del st.session_state[k]
         st.rerun()
-
-
-# ============================================
-# FONCTION CHECKOUT STRIPE
-# ============================================
-def _checkout(price_id, url_app):
-    try:
-        session = stripe.checkout.Session.create(
-            line_items=[{"price": price_id, "quantity": 1}],
-            mode="payment",  # ou "subscription" pour le mensuel
-            success_url=f"{url_app}?session_id={{CHECKOUT_SESSION_ID}}",
-            cancel_url=url_app,
-            payment_method_types=["card"],
-            billing_address_collection="required",
-            metadata={"product": "tuteur_scolaire_ia"}
-        )
-        st.markdown(f"""
-        <div style="text-align:center; padding:2rem; background:#F0FDF4;
-                    border-radius:10px; border:2px solid #10B981;">
-            <h3>🔗 Clique sur le lien pour payer</h3>
-            <br>
-            <a href="{session.url}" target="_blank"
-               style="background:#10B981; color:white; padding:15px 30px;
-                      border-radius:10px; text-decoration:none; font-size:1.2em;">
-                💳 Aller au paiement
-            </a>
-        </div>
-        """, unsafe_allow_html=True)
-    except Exception as e:
-        st.error(f"❌ Erreur Stripe : {e}")
