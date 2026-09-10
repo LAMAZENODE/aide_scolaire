@@ -29,10 +29,6 @@ LIEN_BAC  = "https://buy.stripe.com/aFadR8dmn3DA2MY04M8g006"
 # ============================================
 # CLÉS D'ACCÈS (à mettre dans les URLs de redirection Stripe)
 # ============================================
-# Dans Stripe Dashboard → Payment Links → After payment → Redirect URL
-# Jour : https://ton-app.streamlit.app/?acces=JOUR_a7f3b9e2c1
-# Mois : https://ton-app.streamlit.app/?acces=MOIS_d4e8f1a6b3
-# Bac  : https://ton-app.streamlit.app/?acces=BAC_9c2d5e7f8a
 CLES_ACCES = {
     "JOUR_a7f3b9e2c1": 1,
     "MOIS_d4e8f1a6b3": 30,
@@ -62,7 +58,8 @@ for k, v in defaults.items():
 # ============================================
 # LECTURE DES COOKIES (persistance)
 # ============================================
-# Cookie : nb d'essais gratuits déjà utilisés
+# On lit les cookies à chaque rendu. Si un cookie existe,
+# il écrase la valeur par défaut de session_state.
 essais_cookie = cookie_manager.get(cookie="essais_utilises")
 if essais_cookie is not None:
     try:
@@ -70,7 +67,6 @@ if essais_cookie is not None:
     except (ValueError, TypeError):
         st.session_state.nb_questions_utilisees = 0
 
-# Cookie : accès payant déjà débloqué
 acces_cookie = cookie_manager.get(cookie="acces_paye")
 if acces_cookie is not None:
     st.session_state.est_abonne = True
@@ -168,19 +164,17 @@ if not st.session_state.est_abonne:
                     st.session_state.derniere_matiere = matiere
                     st.session_state.nb_questions_utilisees += 1
 
-                    # 🔵 Écriture du cookie : mémorise le compteur
-                    cookie_manager.set(
-                        "essais_utilises",
-                        st.session_state.nb_questions_utilisees,
-                        expires_at=datetime.now() + timedelta(days=365)
-                    )
-
                     try:
                         st.session_state.pdf_buffer = generer_pdf(reponse, question, matiere)
                     except Exception as e:
                         st.error(f"PDF : {e}")
 
-                st.rerun()
+                # 🔵 Écriture du cookie (hors du spinner, avant tout rerun)
+                cookie_manager.set(
+                    "essais_utilises",
+                    st.session_state.nb_questions_utilisees,
+                    expires_at=datetime.now() + timedelta(days=365)
+                )
 
         if st.session_state.reponse_ia:
             st.markdown("---")
