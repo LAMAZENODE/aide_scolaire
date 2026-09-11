@@ -1,0 +1,8 @@
+streamlit
+extra-streamlit-components
+google-genai
+stripe
+reportlab
+flask
+twilio
+python-dotenv
