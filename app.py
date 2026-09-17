@@ -1,341 +1,386 @@
 import streamlit as st
 from datetime import datetime, timedelta
 import extra_streamlit_components as stx
-from generer_pdf import generer_pdf
+import stripe
+import json
+import os
 from ia_utils import generer_reponse_ia
-from auth import creer_token, verifier_token
 
 # ============================================
-# CONFIGURATION
+# CONFIG
 # ============================================
 st.set_page_config(
     page_title="Tuteur Scolaire IA",
     page_icon="📚",
-    layout="centered",
-    initial_sidebar_state="collapsed"
+    layout="centered"
 )
 
 # ============================================
-# GESTIONNAIRE DE COOKIES
+# CONFIGURATION STRIPE
 # ============================================
-cookie_manager = stx.CookieManager()
+stripe.api_key = st.secrets.get("STRIPE_SECRET_KEY", "")
+
+# Détecter le retour après paiement Stripe
+params = st.query_params
+if params.get("paiement") == "succes":
+    st.session_state.abonne = True
+    st.session_state.email_deja_essaye = False
+    st.session_state.email_verifie = None
+    st.balloons()
+    st.success("🎉 Merci ! Votre abonnement est actif.")
+    st.query_params.clear()
+elif params.get("paiement") == "annule":
+    st.warning("⚠️ Paiement annulé. Vous pouvez réessayer.")
+    st.query_params.clear()
 
 # ============================================
-# LIENS DE PAIEMENT STRIPE
+# GESTION DES ESSAIS (FICHIER SERVEUR)
 # ============================================
-LIEN_JOUR = "https://buy.stripe.com/7sYfZg5TVfmibjuaJq8g004"
-LIEN_MOIS = "https://buy.stripe.com/3cIdR8gyzfmifzKcRy8g005"
-LIEN_BAC  = "https://buy.stripe.com/aFadR8dmn3DA2MY04M8g006"
+FICHIER_ESSAIS = "essais_utilises.json"
+
+def charger_essais():
+    """Lit le fichier des essais déjà utilisés."""
+    if not os.path.exists(FICHIER_ESSAIS):
+        return {}
+    try:
+        with open(FICHIER_ESSAIS, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def sauver_essais(data):
+    """Écrit le fichier des essais."""
+    with open(FICHIER_ESSAIS, "w") as f:
+        json.dump(data, f, indent=2)
+
+def email_a_deja_essaye(email: str) -> bool:
+    """Vérifie si un email a déjà consommé son essai gratuit."""
+    essais = charger_essais()
+    return email.strip().lower() in essais
+
+def enregistrer_essai(email: str):
+    """Marque un email comme ayant utilisé son essai."""
+    essais = charger_essais()
+    essais[email.strip().lower()] = datetime.now().isoformat()
+    sauver_essais(essais)
 
 # ============================================
-# CONSTANTES
+# COOKIES
 # ============================================
-QUESTIONS_GRATUITES = 3
+cookie_manager = stx.CookieManager(key="cookies_essai")
+
+DUREE_ESSAI_JOURS = 7
+MAX_QUESTIONS_ESSAI = 1
 
 # ============================================
-# INITIALISATION SESSION
+# SESSION
 # ============================================
-defaults = {
-    "est_abonne": False,
-    "nb_questions_utilisees": 0,
-    "pdf_buffer": None,
-    "derniere_question": None,
-    "derniere_matiere": None,
-    "reponse_ia": None,
-    "expiration": None,
-}
-for k, v in defaults.items():
+if "compteur_rerun" not in st.session_state:
+    st.session_state.compteur_rerun = 0
+st.session_state.compteur_rerun += 1
+
+for k, v in [
+    ("essai_actif", False),
+    ("date_debut_essai", None),
+    ("questions_posees", 0),
+    ("abonne", False),
+    ("reponse_a_afficher", None),
+    ("question_a_afficher", None),
+    ("email_essai", None),
+    ("cookies_charges", False),
+    ("email_deja_essaye", False),
+    ("email_verifie", None),
+]:
     if k not in st.session_state:
         st.session_state[k] = v
 
 # ============================================
-# LECTURE DES COOKIES
+# HELPERS
 # ============================================
-essais_cookie = cookie_manager.get(cookie="essais_utilises")
-if essais_cookie is not None:
+def jours_restants():
+    if not st.session_state.date_debut_essai:
+        return 0
+    fin = st.session_state.date_debut_essai + timedelta(days=DUREE_ESSAI_JOURS)
+    return max(0, (fin - datetime.now()).days)
+
+def questions_restantes():
+    return max(0, MAX_QUESTIONS_ESSAI - st.session_state.questions_posees)
+
+def acces_autorise():
+    if st.session_state.abonne:
+        return True
+    if not st.session_state.essai_actif:
+        return False
+    if jours_restants() <= 0:
+        return False
+    if questions_restantes() <= 0:
+        return False
+    return True
+
+def demarrer_essai(email: str):
+    """Démarre l'essai pour un email donné (déjà vérifié en amont)."""
+    m = datetime.now()
+    st.session_state.essai_actif = True
+    st.session_state.date_debut_essai = m
+    st.session_state.questions_posees = 0
+    st.session_state.email_essai = email.strip().lower()
+    st.session_state.reponse_a_afficher = None
+    st.session_state.question_a_afficher = None
+    cookie_manager.set(
+        "essai_debut",
+        m.isoformat(),
+        expires_at=m + timedelta(days=DUREE_ESSAI_JOURS),
+        key="set_essai_cookie"
+    )
+
+def creer_lien_paiement(price_id: str, mode: str = "subscription"):
+    """
+    Crée une session Stripe Checkout.
+    mode : "subscription" (abonnement) ou "payment" (paiement unique)
+    """
     try:
-        st.session_state.nb_questions_utilisees = int(essais_cookie)
-    except (ValueError, TypeError):
-        st.session_state.nb_questions_utilisees = 0
-
-# Vérification du token d'accès
-token_cookie = cookie_manager.get(cookie="token_acces")
-if token_cookie:
-    payload = verifier_token(token_cookie)
-    if payload:
-        st.session_state.est_abonne = True
-        st.session_state.expiration = payload["exp"]
-    else:
-        st.session_state.est_abonne = False
-        cookie_manager.delete("token_acces")
-
-# ============================================
-# VÉRIFICATION RETOUR PAIEMENT STRIPE
-# ============================================
-qp = st.query_params
-if "token" in qp:
-    payload = verifier_token(qp["token"])
-    if payload:
-        st.session_state.est_abonne = True
-        st.session_state.expiration = payload["exp"]
-        cookie_manager.set(
-            "token_acces",
-            qp["token"],
-            expires_at=datetime.fromtimestamp(payload["exp"])
+        session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=[{"price": price_id, "quantity": 1}],
+            mode=mode,
+            success_url="http://localhost:8501/?paiement=succes",
+            cancel_url="http://localhost:8501/?paiement=annule",
         )
-        st.success("✅ Paiement confirmé ! Accès débloqué.")
+        return session.url
+    except Exception as e:
+        st.error(f"❌ Erreur Stripe : {e}")
+        return None
+
+# ============================================
+# RESTAURATION COOKIE (avec attente du chargement)
+# ============================================
+cookies = cookie_manager.get_all()
+
+if not st.session_state.cookies_charges:
+    if cookies is not None:
+        st.session_state.cookies_charges = True
+
+if st.session_state.cookies_charges and not st.session_state.essai_actif and not st.session_state.abonne:
+    c = cookies.get("essai_debut")
+    if c:
+        try:
+            d = datetime.fromisoformat(c)
+            if datetime.now() - d < timedelta(days=DUREE_ESSAI_JOURS):
+                st.session_state.essai_actif = True
+                st.session_state.date_debut_essai = d
+        except Exception:
+            pass
+
+# ============================================
+# SIDEBAR
+# ============================================
+with st.sidebar:
+    st.header("📊 Statut")
+    if st.session_state.abonne:
+        st.success("✅ Premium — illimité")
+    elif st.session_state.essai_actif:
+        st.info(f"🎁 Essai — {questions_restantes()} question(s)")
     else:
-        st.error("❌ Lien d'accès invalide ou expiré.")
-    st.query_params.clear()
+        st.error("🔒 Aucun accès")
 
 # ============================================
-# VÉRIFICATION EXPIRATION
+# DEBUG (à retirer plus tard)
 # ============================================
-if st.session_state.get("expiration"):
-    if st.session_state.expiration < datetime.now().timestamp():
-        st.session_state.est_abonne = False
-        st.session_state.expiration = None
-        cookie_manager.delete("token_acces")
-        st.warning("⏳ Ton accès a expiré. Renouvelle ta formule.")
-
-# ============================================
-# CSS
-# ============================================
-st.markdown("""
-<style>
-    .offre-netflix {
-        background: linear-gradient(145deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-        border-radius: 20px; padding: 2.5rem; text-align: center;
-        border: 1px solid rgba(255,255,255,0.1);
-    }
-    .offre-netflix h2 { color: #E94560; font-size: 2rem; font-weight: 700; }
-    .offre-netflix .features {
-        display: flex; flex-wrap: wrap; justify-content: center;
-        gap: 15px; margin: 1.5rem 0;
-    }
-    .offre-netflix .features span {
-        background: rgba(255,255,255,0.08); padding: 8px 20px;
-        border-radius: 50px; color: white; font-size: 0.9rem;
-        border: 1px solid rgba(255,255,255,0.05);
-    }
-    .badge-essai {
-        background: #FEF3C7; color: #92400E; padding: 10px 20px;
-        border-radius: 10px; text-align: center; font-weight: 600;
-        margin: 15px 0;
-    }
-</style>
-""", unsafe_allow_html=True)
+st.write(f"### 🔄 Reruns : {st.session_state.compteur_rerun}")
+st.caption(f"debug → essai={st.session_state.essai_actif} · "
+           f"questions={st.session_state.questions_posees} · "
+           f"acces={acces_autorise()} · abonne={st.session_state.abonne} · "
+           f"email_deja_essaye={st.session_state.email_deja_essaye}")
 
 # ============================================
-# INTERFACE : NON ABONNÉ
+# PAGE
 # ============================================
-if not st.session_state.est_abonne:
-    restantes = QUESTIONS_GRATUITES - st.session_state.nb_questions_utilisees
+st.title("📚 Tuteur Scolaire IA")
+st.markdown("---")
 
-    # --- PHASE 1 : ESSAI GRATUIT ---
-    if restantes > 0:
-        st.title("📚 Tuteur Scolaire IA")
-        st.markdown("### Ton assistant intelligent pour toutes les matières")
+# ---------- CAS 1 : pas d'essai ----------
+if not st.session_state.essai_actif and not st.session_state.abonne:
 
-        st.markdown(
-            f'<div class="badge-essai">🎁 ESSAI GRATUIT — '
-            f'{restantes} question(s) restante(s) sur {QUESTIONS_GRATUITES}</div>',
-            unsafe_allow_html=True
-        )
+    # Sous-cas A : l'email a déjà été vérifié et a déjà consommé son essai
+    if st.session_state.email_deja_essaye:
+        st.error("🔒 Cet email a déjà utilisé l'essai gratuit. Passez au paiement ci-dessous.")
 
-        with st.container():
-            matiere = st.selectbox(
-                "Matière",
-                ["maths", "français", "anglais", "histoire", "sciences",
-                 "physique", "philosophie", "autres"],
-                key="matiere_essai"
-            )
-            question = st.text_area(
-                "Ta question",
-                height=150,
-                placeholder="Ex : Explique-moi les fonctions affines simplement.",
-                key="question_essai"
-            )
-            btn = st.button("🚀 Obtenir ma réponse gratuite", type="primary",
-                            use_container_width=True)
-
-        if btn:
-            if not question.strip():
-                st.warning("⚠️ Écris une question.")
-            else:
-                with st.spinner("🤖 L'IA réfléchit..."):
-                    reponse = generer_reponse_ia(question, matiere)
-                    st.session_state.reponse_ia = reponse
-                    st.session_state.derniere_question = question
-                    st.session_state.derniere_matiere = matiere
-                    st.session_state.nb_questions_utilisees += 1
-
-                    cookie_manager.set(
-                        "essais_utilises",
-                        st.session_state.nb_questions_utilisees,
-                        expires_at=datetime.now() + timedelta(days=365)
-                    )
-
-                    try:
-                        st.session_state.pdf_buffer = generer_pdf(reponse, question, matiere)
-                    except Exception as e:
-                        st.error(f"PDF : {e}")
-
-        if st.session_state.reponse_ia:
-            st.markdown("---")
-            st.markdown("### 📝 Réponse du Tuteur")
-            st.write(st.session_state.reponse_ia)
-
-            if st.session_state.pdf_buffer:
-                st.download_button(
-                    "📥 Télécharger en PDF",
-                    data=st.session_state.pdf_buffer,
-                    file_name="correction.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                    key="dl_essai"
-                )
-
-    # --- PHASE 2 : ESSAI ÉPUISÉ → OFFRES PAYANTES ---
-    else:
-        st.markdown("""
-        <div class="offre-netflix">
-            <h2>🎓 Tu as aimé ton essai ?</h2>
-            <p style="color: #aaa; font-size: 1.1rem;">
-                Débloque l'accès <b>illimité</b> et continue sans t'arrêter.
-            </p>
-            <div class="features">
-                <span>📖 Toutes matières</span>
-                <span>🕐 24/7</span>
-                <span>🎯 Personnalisé</span>
-                <span>📄 PDF inclus</span>
-                <span>🧠 Gemini IA</span>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.write("")
-        st.markdown("### 💎 Choisis ta formule")
-
+        st.markdown("### 🚀 Choisissez votre formule")
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            st.markdown("#### ⚡ Pass Journée")
-            st.markdown("**2,99€**")
-            st.caption("24h illimité — idéal avant un contrôle")
-            st.link_button("💳 Payer", LIEN_JOUR, use_container_width=True)
+            st.markdown("#### ⏰ Jour")
+            st.markdown("### **2,99 €** / jour")
+            st.markdown("""
+            - ✅ 1 jour d'accès
+            - ✅ Toutes les matières
+            - ✅ Idéal pour réviser
+            """)
+            if st.button("💳 Acheter — Jour", key="abo_jour_A",
+                         use_container_width=True):
+                url = creer_lien_paiement(st.secrets["STRIPE_PRICE_JOUR"],
+                                          mode="payment")
+                if url:
+                    st.markdown(f"[👉 **Cliquez ici pour payer**]({url})")
 
         with col2:
-            st.markdown("#### 🌟 Mensuel ⭐")
-            st.markdown("**9,99€/mois**")
-            st.caption("Le plus populaire — annulable en 1 clic")
-            st.link_button("💳 Payer", LIEN_MOIS, use_container_width=True, type="primary")
+            st.markdown("#### 📅 Mois")
+            st.markdown("### **9,99 €** / mois")
+            st.markdown("""
+            - ✅ 30 jours d'accès
+            - ✅ Questions illimitées
+            - ✅ Annulable
+            """)
+            if st.button("💳 Acheter — Mois", key="abo_mois_A",
+                         type="primary", use_container_width=True):
+                url = creer_lien_paiement(st.secrets["STRIPE_PRICE_MOIS"])
+                if url:
+                    st.markdown(f"[👉 **Cliquez ici pour payer**]({url})")
 
         with col3:
-            st.markdown("#### 🎓 Pack Bac")
-            st.markdown("**19,99€**")
-            st.caption("3 mois d'accès — révisions complètes")
-            st.link_button("💳 Payer", LIEN_BAC, use_container_width=True)
+            st.markdown("#### 🎓 BAC ⭐")
+            st.markdown("### **49,99 €** / an")
+            st.markdown("""
+            - ✅ **Toute l'année**
+            - ✅ **Spécial BAC**
+            - ✅ Meilleure offre
+            """)
+            if st.button("💳 Acheter — BAC", key="abo_bac_A",
+                         use_container_width=True):
+                url = creer_lien_paiement(st.secrets["STRIPE_PRICE_BAC"])
+                if url:
+                    st.markdown(f"[👉 **Cliquez ici pour payer**]({url})")
 
+        st.caption("💳 Paiement sécurisé par Stripe · Annulable à tout moment")
+
+    # Sous-cas B : formulaire d'essai normal
+    else:
+        st.markdown("### 🎓 Bienvenue sur votre tuteur IA !")
         st.markdown("""
-        <div style="text-align:center; margin-top:20px; color:#6B7280; font-size:0.9em;">
-            🛡️ Paiement sécurisé par <b>Stripe</b><br>
-            ⚡ Déblocage instantané
-        </div>
-        """, unsafe_allow_html=True)
+        Posez **n'importe quelle question** dans **toutes les matières** :
+        - 📐 Maths · 📖 Français · 🏛️ Histoire · ⚗️ Physique · 🧬 SVT · 🌍 Anglais…
 
-        st.divider()
-        st.markdown(
-            "<h3 style='text-align:center;'>💬 Ils ont testé (4.9/5 ⭐)</h3>",
-            unsafe_allow_html=True
-        )
-        a1, a2 = st.columns(2)
-        with a1:
-            st.info(
-                "**⭐⭐⭐⭐⭐ « Sauvée pour le Bac ! »**\n\n"
-                "*« L'IA m'a réexpliqué étape par étape sans me juger. »*\n\n"
-                "— **Léa, 17 ans**"
-            )
-        with a2:
-            st.info(
-                "**⭐⭐⭐⭐⭐ « Rentabilisé en un soir »**\n\n"
-                "*« Idéal pour débloquer les devoirs le soir. »*\n\n"
-                "— **Marc, parent**"
-            )
+        **Essai gratuit :**
+        - ✅ **7 jours** d'accès
+        - ✅ **1 question gratuite**
+        """)
 
-# ============================================
-# INTERFACE : ABONNÉ
-# ============================================
-else:
-    st.success("✅ Accès illimité débloqué")
-    st.title("🎓 Mon Tuteur Scolaire")
+        with st.form("form_essai"):
+            email = st.text_input("📧 Votre email (pour activer l'essai) :",
+                                  placeholder="exemple@email.com")
+            submit = st.form_submit_button("🎁 Démarrer l'essai gratuit",
+                                           type="primary",
+                                           use_container_width=True)
 
-    if st.session_state.pdf_buffer:
-        st.markdown("### 📄 Dernière correction")
-        c1, c2, c3 = st.columns([2, 1, 1])
-        with c1:
-            st.info(f"📘 Matière : **{st.session_state.derniere_matiere.upper()}**")
-        with c2:
-            st.download_button(
-                "📥 Télécharger",
-                data=st.session_state.pdf_buffer,
-                file_name=f"correction_{st.session_state.derniere_matiere}.pdf",
-                mime="application/pdf",
-                use_container_width=True,
-                key="dl_abo"
-            )
-        with c3:
-            if st.button("🗑️ Effacer", use_container_width=True):
-                st.session_state.pdf_buffer = None
-                st.session_state.reponse_ia = None
+        if submit:
+            if not email or "@" not in email or "." not in email:
+                st.warning("⚠️ Entrez un email valide.")
+            elif email_a_deja_essaye(email):
+                # Mémoriser pour que le clic suivant sur un bouton de paiement
+                # ne réaffiche PAS le formulaire d'essai
+                st.session_state.email_deja_essaye = True
+                st.session_state.email_verifie = email.strip().lower()
                 st.rerun()
-        st.divider()
+            else:
+                enregistrer_essai(email)
+                demarrer_essai(email)
+                st.rerun()
 
-    st.markdown("### ✍️ Posez votre question")
-    matiere = st.selectbox(
-        "Matière",
-        ["maths", "français", "anglais", "histoire", "sciences",
-         "physique", "philosophie", "autres"],
-        key="matiere_abo"
-    )
-    question = st.text_area(
-        "Votre question",
-        height=150,
-        placeholder="Ex : Résoudre 2x + 5 = 13 et expliquer chaque étape.",
-        key="question_abo"
-    )
-    btn = st.button("🚀 Obtenir la réponse", type="primary", use_container_width=True)
+# ---------- CAS 2 : essai épuisé ----------
+elif not acces_autorise() and not st.session_state.abonne:
+    st.error("## 🔒 Votre essai gratuit est terminé")
 
-    if btn:
-        if not question.strip():
-            st.warning("⚠️ Écris une question.")
-        else:
-            with st.spinner("🤖 Analyse..."):
-                reponse = generer_reponse_ia(question, matiere)
-                st.session_state.reponse_ia = reponse
-                st.session_state.derniere_question = question
-                st.session_state.derniere_matiere = matiere
-                try:
-                    st.session_state.pdf_buffer = generer_pdf(reponse, question, matiere)
-                except Exception as e:
-                    st.error(f"PDF : {e}")
+    if st.session_state.reponse_a_afficher:
+        with st.expander("📖 Revoir ma dernière réponse", expanded=False):
+            st.caption(f"Question : {st.session_state.question_a_afficher}")
+            st.markdown(st.session_state.reponse_a_afficher)
 
-    if st.session_state.reponse_ia:
+    st.markdown("### 🚀 Choisissez votre formule")
+
+    col1, col2, col3 = st.columns(3)
+
+    # --- FORMULE JOUR ---
+    with col1:
+        st.markdown("#### ⏰ Jour")
+        st.markdown("### **2,99 €** / jour")
+        st.markdown("""
+        - ✅ 1 jour d'accès
+        - ✅ Toutes les matières
+        - ✅ Idéal pour réviser
+        """)
+        if st.button("💳 Acheter — Jour", key="abo_jour", use_container_width=True):
+            url = creer_lien_paiement(st.secrets["STRIPE_PRICE_JOUR"], mode="payment")
+            if url:
+                st.markdown(f"[👉 **Cliquez ici pour payer**]({url})")
+
+    # --- FORMULE MOIS ---
+    with col2:
+        st.markdown("#### 📅 Mois")
+        st.markdown("### **9,99 €** / mois")
+        st.markdown("""
+        - ✅ 30 jours d'accès
+        - ✅ Questions illimitées
+        - ✅ Annulable
+        """)
+        if st.button("💳 Acheter — Mois", key="abo_mois", type="primary",
+                     use_container_width=True):
+            url = creer_lien_paiement(st.secrets["STRIPE_PRICE_MOIS"])
+            if url:
+                st.markdown(f"[👉 **Cliquez ici pour payer**]({url})")
+
+    # --- FORMULE BAC ---
+    with col3:
+        st.markdown("#### 🎓 BAC ⭐")
+        st.markdown("### **49,99 €** / an")
+        st.markdown("""
+        - ✅ **Toute l'année**
+        - ✅ **Spécial BAC**
+        - ✅ Meilleure offre
+        """)
+        if st.button("💳 Acheter — BAC", key="abo_bac", use_container_width=True):
+            url = creer_lien_paiement(st.secrets["STRIPE_PRICE_BAC"])
+            if url:
+                st.markdown(f"[👉 **Cliquez ici pour payer**]({url})")
+
+    st.caption("💳 Paiement sécurisé par Stripe · Annulable à tout moment")
+
+# ---------- CAS 3 : accès OK ----------
+else:
+    if st.session_state.abonne:
+        st.success("✅ Premium — illimité")
+    else:
+        st.success(f"🎁 Essai — {questions_restantes()} question restante")
+
+    if st.session_state.reponse_a_afficher:
+        st.markdown("### 📖 Réponse")
+        st.caption(f"Question : {st.session_state.question_a_afficher}")
+        st.markdown(st.session_state.reponse_a_afficher)
         st.markdown("---")
-        st.markdown("### 📝 Réponse du Tuteur")
-        st.write(st.session_state.reponse_ia)
-        if st.session_state.pdf_buffer:
-            st.download_button(
-                "📥 Télécharger la correction en PDF",
-                data=st.session_state.pdf_buffer,
-                file_name="correction.pdf",
-                mime="application/pdf",
-                use_container_width=True,
-                key="dl_abo_new"
-            )
 
-    st.divider()
-    if st.button("🔄 Réinitialiser la session", use_container_width=True):
-        for k in list(st.session_state.keys()):
-            del st.session_state[k]
-        st.rerun()
+    st.markdown("### 💬 Posez votre question")
+    with st.form("form_question"):
+        question = st.text_area(
+            "Votre question :",
+            height=120,
+            placeholder="Ex: Résous x+8=7 · Explique la photosynthèse · Traduis 'hello' …"
+        )
+        submit = st.form_submit_button("🚀 Envoyer", type="primary",
+                                       use_container_width=True)
+
+    if submit:
+        if not question.strip():
+            st.warning("⚠️ Écrivez une question avant d'envoyer.")
+        elif not acces_autorise():
+            st.error("🔒 Essai terminé.")
+        else:
+            with st.spinner("🤔 L'IA réfléchit à votre question..."):
+                reponse = generer_reponse_ia(question)
+
+            st.session_state.question_a_afficher = question
+            st.session_state.reponse_a_afficher = reponse
+
+            if not st.session_state.abonne:
+                st.session_state.questions_posees += 1
+
+            st.markdown("### 📖 Réponse du tuteur")
+            st.markdown(reponse)
