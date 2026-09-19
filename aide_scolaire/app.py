@@ -10,7 +10,7 @@ from ia_utils import generer_reponse_ia
 # CONFIG
 # ============================================
 st.set_page_config(
-    page_title="Tuteur Scolaire IA",
+    page_title="Tuteur Scolaire ",
     page_icon="📚",
     layout="centered"
 )
@@ -195,7 +195,7 @@ st.caption(f"debug → essai={st.session_state.essai_actif} · "
 # ============================================
 # PAGE
 # ============================================
-st.title("📚 Tuteur Scolaire IA")
+st.title("📚 Tuteur Scolaire ")
 st.markdown("---")
 
 # ---------- CAS 1 : pas d'essai ----------
@@ -255,7 +255,7 @@ if not st.session_state.essai_actif and not st.session_state.abonne:
 
     # Sous-cas B : formulaire d'essai normal
     else:
-        st.markdown("### 🎓 Bienvenue sur votre tuteur IA !")
+        st.markdown("### 🎓 Bienvenue sur votre tuteur !")
         st.markdown("""
         Posez **n'importe quelle question** dans **toutes les matières** :
         - 📐 Maths · 📖 Français · 🏛️ Histoire · ⚗️ Physique · 🧬 SVT · 🌍 Anglais…
