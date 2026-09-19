@@ -255,7 +255,7 @@ if not st.session_state.essai_actif and not st.session_state.abonne:
 
     # Sous-cas B : formulaire d'essai normal
     else:
-        st.markdown("### 🎓 Bienvenue sur votre tuteur IA !")
+        st.markdown("### 🎓 Bienvenue sur votre tuteur !")
         st.markdown("""
         Posez **n'importe quelle question** dans **toutes les matières** :
         - 📐 Maths · 📖 Français · 🏛️ Histoire · ⚗️ Physique · 🧬 SVT · 🌍 Anglais…
