@@ -133,6 +133,7 @@ def demarrer_essai(email: str):
         key="set_essai_cookie"
     )
 
+
 def creer_lien_paiement(price_id: str, mode: str = "subscription"):
     """
     Crée une session Stripe Checkout.
@@ -140,7 +141,7 @@ def creer_lien_paiement(price_id: str, mode: str = "subscription"):
     """
     try:
         session = stripe.checkout.Session.create(
-            payment_method_types=["card"],
+            # ❌ payment_method_types retiré — géré depuis le Dashboard Stripe
             line_items=[{"price": price_id, "quantity": 1}],
             mode=mode,
             success_url="http://localhost:8501/?paiement=succes",
