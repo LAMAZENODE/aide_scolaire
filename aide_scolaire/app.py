@@ -2,9 +2,8 @@ import streamlit as st
 from datetime import datetime, timedelta
 import extra_streamlit_components as stx
 import stripe
-import json
-import os
 import sqlite3
+import os
 from ia_utils import generer_reponse_ia
 
 # ============================================
@@ -22,7 +21,7 @@ st.set_page_config(
 stripe.api_key = st.secrets.get("STRIPE_SECRET_KEY", "")
 
 # ============================================
-# BASE DE DONNÉES (SQLite persistante)
+# BASE DE DONNÉES SQLITE
 # ============================================
 DB_PATH = "tuteur.db"
 
@@ -105,7 +104,7 @@ def enregistrer_abonnement(email: str, session_id: str, formule: str, duree_jour
 cookie_manager = stx.CookieManager(key="cookies_essai")
 
 DUREE_ESSAI_JOURS = 7
-MAX_QUESTIONS_ESSAI = 3  # ← passé de 1 à 3
+MAX_QUESTIONS_ESSAI = 3
 
 # ============================================
 # SESSION
@@ -135,12 +134,11 @@ if params.get("paiement") == "succes":
         st.error("❌ Session de paiement introuvable.")
     else:
         try:
-            # On interroge Stripe pour vérifier RÉELLEMENT le paiement
             checkout = stripe.checkout.Session.retrieve(session_id)
             if checkout.payment_status == "paid":
-                email_client = checkout.customer_details.email if checkout.customer_details else None
+                email_client = (checkout.customer_details.email
+                                if checkout.customer_details else None)
                 if email_client:
-                    # Déterminer la durée selon la formule
                     duree = 1
                     if checkout.amount_total >= 4999:
                         duree = 365
@@ -194,14 +192,15 @@ def demarrer_essai(email: str):
     st.session_state.reponse_a_afficher = None
     st.session_state.question_a_afficher = None
     cookie_manager.set(
-        "essai_debut",
-        m.isoformat(),
+        "essai_debut", m.isoformat(),
         expires_at=m + timedelta(days=DUREE_ESSAI_JOURS),
         key="set_essai_cookie"
     )
-    cookie_manager.set("essai_email", email.strip().lower(),
-                       expires_at=m + timedelta(days=DUREE_ESSAI_JOURS),
-                       key="set_email_cookie")
+    cookie_manager.set(
+        "essai_email", email.strip().lower(),
+        expires_at=m + timedelta(days=DUREE_ESSAI_JOURS),
+        key="set_email_cookie"
+    )
 
 def creer_lien_paiement(price_id: str, mode: str = "subscription"):
     try:
@@ -217,7 +216,7 @@ def creer_lien_paiement(price_id: str, mode: str = "subscription"):
         return None
 
 # ============================================
-# RESTAURATION COOKIE (avec email)
+# RESTAURATION COOKIE
 # ============================================
 cookies = cookie_manager.get_all()
 if not st.session_state.cookies_charges and cookies is not None:
@@ -230,7 +229,6 @@ if st.session_state.cookies_charges and not st.session_state.essai_actif and not
         try:
             d = datetime.fromisoformat(c_debut)
             if datetime.now() - d < timedelta(days=DUREE_ESSAI_JOURS):
-                # Récupérer l'état réel depuis la BDD
                 row = get_essai(c_email)
                 if row:
                     st.session_state.essai_actif = True
@@ -240,13 +238,23 @@ if st.session_state.cookies_charges and not st.session_state.essai_actif and not
         except Exception:
             pass
 
-# Vérifier si un abonnement existe en BDD
+# Mur payant persistant
+email_cookie = cookies.get("email_verifie")
+if email_cookie and not st.session_state.abonne and not st.session_state.essai_actif:
+    if email_a_deja_essaye(email_cookie):
+        st.session_state.email_deja_essaye = True
+        st.session_state.email_verifie = email_cookie
+
+# Vérifier abonnement en BDD
 if st.session_state.email_essai and not st.session_state.abonne:
     abo = get_abonnement(st.session_state.email_essai)
     if abo:
-        expiration = datetime.fromisoformat(abo[1])
-        if expiration > datetime.now():
-            st.session_state.abonne = True
+        try:
+            expiration = datetime.fromisoformat(abo[1])
+            if expiration > datetime.now():
+                st.session_state.abonne = True
+        except Exception:
+            pass
 
 # ============================================
 # SIDEBAR
@@ -269,15 +277,60 @@ st.markdown("---")
 # ---------- CAS 1 : pas d'essai ----------
 if not st.session_state.essai_actif and not st.session_state.abonne:
 
+    # Sous-cas A : email a déjà essayé
     if st.session_state.email_deja_essaye:
         st.error("🔒 Cet email a déjà utilisé l'essai gratuit. Passez au paiement ci-dessous.")
-        # ... (bloc paiement identique à votre code original)
-        # [Je l'omets ici pour lisibilité — gardez votre bloc col1/col2/col3]
 
+        st.markdown("### 🚀 Choisissez votre formule")
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.markdown("#### ⏰ Jour")
+            st.markdown("### **2,99 €** / jour")
+            st.markdown("""
+            - ✅ 1 jour d'accès
+            - ✅ Toutes les matières
+            - ✅ Idéal pour réviser
+            """)
+            if st.button("💳 Acheter — Jour", key="abo_jour_A", use_container_width=True):
+                url = creer_lien_paiement(st.secrets["STRIPE_PRICE_JOUR"], mode="payment")
+                if url:
+                    st.markdown(f"[👉 **Cliquez ici pour payer**]({url})")
+
+        with col2:
+            st.markdown("#### 📅 Mois")
+            st.markdown("### **9,99 €** / mois")
+            st.markdown("""
+            - ✅ 30 jours d'accès
+            - ✅ Questions illimitées
+            - ✅ Annulable
+            """)
+            if st.button("💳 Acheter — Mois", key="abo_mois_A", type="primary", use_container_width=True):
+                url = creer_lien_paiement(st.secrets["STRIPE_PRICE_MOIS"])
+                if url:
+                    st.markdown(f"[👉 **Cliquez ici pour payer**]({url})")
+
+        with col3:
+            st.markdown("#### 🎓 BAC ⭐")
+            st.markdown("### **49,99 €** / an")
+            st.markdown("""
+            - ✅ **Toute l'année**
+            - ✅ **Spécial BAC**
+            - ✅ Meilleure offre
+            """)
+            if st.button("💳 Acheter — BAC", key="abo_bac_A", use_container_width=True):
+                url = creer_lien_paiement(st.secrets["STRIPE_PRICE_BAC"])
+                if url:
+                    st.markdown(f"[👉 **Cliquez ici pour payer**]({url})")
+
+        st.caption("💳 Paiement sécurisé par Stripe · Annulable à tout moment")
+
+    # Sous-cas B : formulaire d'essai normal
     else:
         st.markdown("### 🎓 Bienvenue sur votre tuteur !")
         st.markdown(f"""
-        Posez **n'importe quelle question** dans **toutes les matières**.
+        Posez **n'importe quelle question** dans **toutes les matières** :
+        - 📐 Maths · 📖 Français · 🏛️ Histoire · ⚗️ Physique · 🧬 SVT · 🌍 Anglais…
 
         **Essai gratuit :**
         - ✅ **{DUREE_ESSAI_JOURS} jours** d'accès
@@ -297,6 +350,11 @@ if not st.session_state.essai_actif and not st.session_state.abonne:
             elif email_a_deja_essaye(email):
                 st.session_state.email_deja_essaye = True
                 st.session_state.email_verifie = email.strip().lower()
+                cookie_manager.set(
+                    "email_verifie", email.strip().lower(),
+                    expires_at=datetime.now() + timedelta(days=365),
+                    key="set_email_verifie"
+                )
                 st.rerun()
             else:
                 creer_essai(email)
@@ -313,7 +371,48 @@ elif not acces_autorise() and not st.session_state.abonne:
             st.markdown(st.session_state.reponse_a_afficher)
 
     st.markdown("### 🚀 Choisissez votre formule")
-    # ... (votre bloc col1/col2/col3 de paiement)
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown("#### ⏰ Jour")
+        st.markdown("### **2,99 €** / jour")
+        st.markdown("""
+        - ✅ 1 jour d'accès
+        - ✅ Toutes les matières
+        - ✅ Idéal pour réviser
+        """)
+        if st.button("💳 Acheter — Jour", key="abo_jour", use_container_width=True):
+            url = creer_lien_paiement(st.secrets["STRIPE_PRICE_JOUR"], mode="payment")
+            if url:
+                st.markdown(f"[👉 **Cliquez ici pour payer**]({url})")
+
+    with col2:
+        st.markdown("#### 📅 Mois")
+        st.markdown("### **9,99 €** / mois")
+        st.markdown("""
+        - ✅ 30 jours d'accès
+        - ✅ Questions illimitées
+        - ✅ Annulable
+        """)
+        if st.button("💳 Acheter — Mois", key="abo_mois", type="primary", use_container_width=True):
+            url = creer_lien_paiement(st.secrets["STRIPE_PRICE_MOIS"])
+            if url:
+                st.markdown(f"[👉 **Cliquez ici pour payer**]({url})")
+
+    with col3:
+        st.markdown("#### 🎓 BAC ⭐")
+        st.markdown("### **49,99 €** / an")
+        st.markdown("""
+        - ✅ **Toute l'année**
+        - ✅ **Spécial BAC**
+        - ✅ Meilleure offre
+        """)
+        if st.button("💳 Acheter — BAC", key="abo_bac", use_container_width=True):
+            url = creer_lien_paiement(st.secrets["STRIPE_PRICE_BAC"])
+            if url:
+                st.markdown(f"[👉 **Cliquez ici pour payer**]({url})")
+
+    st.caption("💳 Paiement sécurisé par Stripe · Annulable à tout moment")
 
 # ---------- CAS 3 : accès OK ----------
 else:
@@ -330,8 +429,11 @@ else:
 
     st.markdown("### 💬 Posez votre question")
     with st.form("form_question"):
-        question = st.text_area("Votre question :", height=120,
-                                placeholder="Ex: Résous x+8=7 · Explique la photosynthèse…")
+        question = st.text_area(
+            "Votre question :",
+            height=120,
+            placeholder="Ex: Résous x+8=7 · Explique la photosynthèse · Traduis 'hello' …"
+        )
         submit = st.form_submit_button("🚀 Envoyer", type="primary",
                                        use_container_width=True)
 
@@ -341,23 +443,21 @@ else:
         elif not acces_autorise():
             st.error("🔒 Essai terminé.")
         else:
-            # ⚠️ CORRECTION CLÉ : ne décompter QUE si l'IA répond correctement
             reponse = None
             erreur = None
+
             with st.spinner("🤔 L'IA réfléchit à votre question..."):
                 try:
-                    reponse = generer_reponse_ia(question)
-                    # Détecter les faux succès (503 encapsulé dans une string)
-                    if reponse is None or "503" in str(reponse) or "UNAVAILABLE" in str(reponse):
-                        erreur = "L'IA est momentanément indisponible."
-                        reponse = None
+                    reponse = generer_reponse_ia(question, matiere="maths")
                 except Exception as e:
                     erreur = str(e)
                     reponse = None
 
             if erreur or not reponse:
-                st.error(f"⚠️ {erreur or 'Erreur inconnue'}. "
-                         f"**Votre question n'a pas été décomptée.** Réessayez dans un instant.")
+                st.error(f"⚠️ {erreur or 'Erreur inconnue'}")
+                st.info("💡 **Votre question n'a pas été décomptée.** Réessayez dans un instant.")
+                if st.button("🔄 Réessayer"):
+                    st.rerun()
             else:
                 st.session_state.question_a_afficher = question
                 st.session_state.reponse_a_afficher = reponse
