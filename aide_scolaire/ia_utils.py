@@ -1,115 +1,109 @@
 from google import genai
 from google.genai import types
 import streamlit as st
+import time
+
+
+# ============================================
+# LISTE DES MODÈLES À ESSAYER (fallback)
+# ============================================
+# Si le premier modèle est saturé, on essaie le suivant.
+MODELES = [
+    "gemini-3.6-flash",   # votre modèle principal
+    "gemini-3.5-flash",   # fallback 1
+    "gemini-2.0-flash",   # fallback 2 (plus ancien mais stable)
+]
+
 
 def initialiser_client_ia():
-    """Initialise le client Google GenAI avec la clé API depuis les secrets"""
+    """Crée le client Google GenAI avec la clé API."""
     try:
-        # Récupérer la clé depuis les secrets Streamlit
-        cle_pour_ia = st.secrets["GEMINI_API_KEY"]
-        return genai.Client(api_key=cle_pour_ia)
+        cle = st.secrets["GEMINI_API_KEY"]
+        return genai.Client(api_key=cle)
     except KeyError:
         st.error("❌ Clé API Gemini manquante dans secrets.toml")
         return None
     except Exception as e:
-        st.error(f"❌ Erreur d'initialisation du client IA : {str(e)}")
+        st.error(f"❌ Erreur d'initialisation : {e}")
         return None
 
-def generer_reponse_ia(question, matiere="maths"):
+
+def _construire_instructions(matiere: str) -> str:
+    """Le 'system prompt' : les règles que l'IA doit suivre."""
+    return (
+        f"Tu es un tuteur scolaire IA pédagogue, spécialisé en {matiere}. "
+        "Structure ta réponse :\n"
+        "1. Introduction encourageante\n"
+        "2. Concepts clés\n"
+        "3. Résolution étape par étape\n"
+        "4. Exemple concret\n"
+        "5. Conclusion\n\n"
+        "Adapte ton langage au niveau collège/lycée."
+    )
+
+
+def generer_reponse_ia(question: str, matiere: str = "maths") -> str:
     """
-    Génère une réponse pédagogique pour un élève
+    Génère une réponse avec :
+    - 3 tentatives par modèle (retry)
+    - Délai croissant entre les tentatives (1s, 2s, 4s)
+    - Fallback sur d'autres modèles si le premier échoue
     
-    Args:
-        question (str): La question posée par l'élève
-        matiere (str): La matière (maths, francais, anglais, etc.)
-    
-    Returns:
-        str: La réponse générée par l'IA
+    ⚠️ LÈVE UNE EXCEPTION en cas d'échec total.
+    → Comme ça, app.py sait que ça a échoué et ne décompte PAS la question.
     """
     client = initialiser_client_ia()
     if not client:
-        return "❌ Désolé, le service IA est temporairement indisponible. Veuillez réessayer plus tard."
-    
-    # Instructions système détaillées
-    instructions = (
-        "Tu es un tuteur scolaire IA hautement qualifié, pédagogue et bienveillant. "
-        "Ton but est d'aider l'élève à comprendre ses leçons et exercices.\n\n"
-        "Structure ta réponse comme suit :\n"
-        "1. **Introduction** : Salue brièvement l'élève de manière encourageante.\n"
-        "2. **Concepts clés** : Explique clairement les notions nécessaires à la compréhension.\n"
-        "3. **Résolution** : Propose une résolution détaillée, étape par étape.\n"
-        "4. **Exemples** : Donne un exemple concret si pertinent.\n"
-        "5. **Conclusion** : Termine par un conseil pratique ou un mot d'encouragement.\n\n"
-        "Adapte ton langage au niveau collège/lycée. Sois clair, structuré et accessible."
-    )
-    
-    try:
-        # Appel à l'API Gemini avec google-genai
-        reponse = client.models.generate_content(
-            model="gemini-3.6-flash",  # ou 'gemini-1.5-flash' selon disponibilité
-            contents=question,
-            config=types.GenerateContentConfig(
-                system_instruction=instructions,
-                temperature=0.3,  # Réponses plus précises et cohérentes
-                max_output_tokens=2048,  # Limite la longueur
-                top_p=0.95,
-                top_k=40
-            )
-        )
-        
-        # Vérifier que la réponse contient du texte
-        if reponse and reponse.text:
-            return reponse.text
-        else:
-            return "❌ L'IA n'a pas pu générer de réponse. Veuillez reformuler votre question."
-            
-    except Exception as e:
-        # Gestion des erreurs spécifiques
-        error_msg = str(e)
-        if "API_KEY" in error_msg or "permission" in error_msg.lower():
-            return "❌ Erreur d'authentification : Vérifiez votre clé API Gemini."
-        elif "quota" in error_msg.lower():
-            return "❌ Quota API dépassé. Veuillez réessayer plus tard."
-        else:
-            return f"❌ Erreur IA : {error_msg}"
+        raise RuntimeError("Client IA indisponible")
 
-def generer_reponse_ia_avec_stream(question, matiere="maths"):
-    """
-    Version avec streaming pour afficher la réponse progressivement
-    """
-    client = initialiser_client_ia()
-    if not client:
-        yield "❌ Désolé, le service IA est temporairement indisponible."
-        return
-    
-    instructions = (
-        "Tu es un tuteur scolaire IA. Donne une réponse claire, structurée et pédagogique "
-        "adaptée au niveau collège/lycée."
-    )
-    
-    try:
-        reponse = client.models.generate_content_stream(
-            model='gemini-2.0-flash-exp',
-            contents=question,
-            config=types.GenerateContentConfig(
-                system_instruction=instructions,
-                temperature=0.3
-            )
-        )
-        
-        for chunk in reponse:
-            if chunk.text:
-                yield chunk.text
-                
-    except Exception as e:
-        yield f"❌ Erreur : {str(e)}"
+    instructions = _construire_instructions(matiere)
+    derniere_erreur = None
 
+    # ---- BOUCLE 1 : on essaie chaque modèle ----
+    for modele in MODELES:
 
+        # ---- BOUCLE 2 : on réessaie 3 fois le même modèle ----
+        for tentative in range(3):
+            try:
+                # Appel à l'API Gemini
+                reponse = client.models.generate_content(
+                    model=modele,
+                    contents=question,
+                    config=types.GenerateContentConfig(
+                        system_instruction=instructions,
+                        temperature=0.3,
+                        max_output_tokens=2048,
+                    ),
+                )
 
+                # Succès : on retourne la réponse
+                if reponse and reponse.text:
+                    return reponse.text
 
+                # Réponse vide : on retente
+                derniere_erreur = "Réponse vide"
+                time.sleep(1)
+                continue
 
+            except Exception as e:
+                msg = str(e)
+                derniere_erreur = msg
 
+                # --- CAS 1 : surcharge (503) → on attend et on retente ---
+                if "503" in msg or "UNAVAILABLE" in msg or "overloaded" in msg.lower():
+                    time.sleep(2 ** tentative)  # 1s, 2s, 4s
+                    continue
 
+                # --- CAS 2 : quota dépassé → inutile de retenter, on abandonne ---
+                if "quota" in msg.lower() or "429" in msg:
+                    raise RuntimeError("Quota API dépassé. Réessayez plus tard.")
 
+                # --- CAS 3 : clé invalide → inutile de retenter ---
+                if "API_KEY" in msg or "permission" in msg.lower():
+                    raise RuntimeError("Clé API Gemini invalide.")
 
+                # --- CAS 4 : autre erreur → on passe au modèle suivant ---
+                break
 
+    # Si on arrive ici : tous les modèles ont échoué
+    raise RuntimeError(f"L'IA est momentanément indisponible. ({derniere_erreur})")
